@@ -1,25 +1,38 @@
-name: Ultra Build
-on: [push]
+name: Debug & Diagnose
+on: [push, workflow_dispatch]
+
 jobs:
-  build:
+  diagnose:
     runs-on: ubuntu-latest
     container: barichello/godot-ci:4.2.1
-    env:
-      GODOT_VERSION: 4.2.1
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Templates (The Fix)
+      # الخطوة 1: تثبيت القوالب (سنراقب إذا كانت ستفشل هنا)
+      - name: Install Templates & Log
         run: |
-          echo "Downloading templates..."
+          echo ">>> STARTING TEMPLATE INSTALL <<<" > debug_log.txt
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
           wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz
           unzip -q Godot_v4.2.1-stable_export_templates.tpz
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
-          echo "Templates installed successfully!"
+          echo "Templates installed at:" >> debug_log.txt
+          ls -R ~/.local/share/godot/export_templates/ >> debug_log.txt
+          echo ">>> END TEMPLATE INSTALL <<<" >> debug_log.txt
+          echo "--------------------------------" >> debug_log.txt
 
+      # الخطوة 2: فحص الملفات (هل ملف المشروع موجود؟ هل الأسماء صحيحة؟)
+      - name: Inspect Files
+        run: |
+          echo ">>> CURRENT DIRECTORY FILES <<<" >> debug_log.txt
+          ls -la >> debug_log.txt
+          echo ">>> EXPORT PRESETS CONTENT <<<" >> debug_log.txt
+          cat export_presets.cfg >> debug_log.txt
+          echo "--------------------------------" >> debug_log.txt
+
+      # الخطوة 3: إعداد المفاتيح
       - name: Setup Keystore
         run: |
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
@@ -28,11 +41,33 @@ jobs:
           sed -i 's|keystore/debug_user=""|keystore/debug_user="androiddebugkey"|g' export_presets.cfg
           sed -i 's|keystore/debug_password=""|keystore/debug_password="android"|g' export_presets.cfg
 
-      - name: Build APK
-        run: godot --headless --verbose --export-debug "Android" game.apk
+      # الخطوة 4: محاولة البناء مع تسجيل الأخطاء في الملف النصي بدلاً من إيقاف العملية
+      - name: Dry Run Build
+        run: |
+          echo ">>> STARTING BUILD ATTEMPT <<<" >> debug_log.txt
+          # نحاول البناء ونوجه كل المخرجات والأخطاء إلى الملف
+          godot --headless --verbose --export-debug "Android" game.apk >> debug_log.txt 2>&1 || echo "Build Failed, check logs below" >> debug_log.txt
+          echo ">>> END BUILD ATTEMPT <<<" >> debug_log.txt
 
-      - name: Upload Artifact
+      # الخطوة 5: التحقق النهائي (هل ظهر ملف APK؟)
+      - name: Check Output
+        run: |
+          echo "--------------------------------" >> debug_log.txt
+          echo ">>> FINAL FILE CHECK <<<" >> debug_log.txt
+          if [ -f game.apk ]; then
+            echo "SUCCESS: game.apk exists!" >> debug_log.txt
+            ls -lh game.apk >> debug_log.txt
+          else
+            echo "FAILURE: game.apk was NOT created." >> debug_log.txt
+          fi
+
+      # الخطوة 6: رفع التقرير + ملف اللعبة (إن وجد)
+      # نستخدم if: always() لضمان رفع التقرير حتى لو فشل البناء
+      - name: Upload Debug Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ultra-game-apk
-          path: game.apk
+          name: debug-report-and-game
+          path: |
+            debug_log.txt
+            game.apk
