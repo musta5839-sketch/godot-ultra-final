@@ -1,0 +1,38 @@
+name: Ultra Build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: barichello/godot-ci:4.2.1
+    env:
+      GODOT_VERSION: 4.2.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Templates (The Fix)
+        run: |
+          echo "Downloading templates..."
+          mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
+          wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz
+          unzip -q Godot_v4.2.1-stable_export_templates.tpz
+          mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
+          rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
+          echo "Templates installed successfully!"
+
+      - name: Setup Keystore
+        run: |
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
+          mv debug.keystore /root/debug.keystore
+          sed -i 's|keystore/debug=""|keystore/debug="/root/debug.keystore"|g' export_presets.cfg
+          sed -i 's|keystore/debug_user=""|keystore/debug_user="androiddebugkey"|g' export_presets.cfg
+          sed -i 's|keystore/debug_password=""|keystore/debug_password="android"|g' export_presets.cfg
+
+      - name: Build APK
+        run: godot --headless --verbose --export-debug "Android" game.apk
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ultra-game-apk
+          path: game.apk
