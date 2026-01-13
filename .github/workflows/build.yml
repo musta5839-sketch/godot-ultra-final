@@ -1,31 +1,36 @@
-name: Final Relative Build
+name: Diagnosis & Fix
 on: [push, workflow_dispatch]
 
 jobs:
-  build:
+  diagnose_and_fix:
     runs-on: ubuntu-latest
     container: barichello/godot-ci:4.2.1
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب (ضروري)
+      # 1. تثبيت القوالب (كما في الكود الناجح)
       - name: Install Templates
         run: |
+          echo ">>> STARTING TEMPLATE INSTALL <<<" > debug_log.txt
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
           wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz
           unzip -q Godot_v4.2.1-stable_export_templates.tpz
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
+          echo "Templates Installed." >> debug_log.txt
 
-      # 2. إعداد المفتاح + ملف التصدير (الحل الذكي)
-      - name: Setup Config & Keystore
+      # 2. إعداد المفتاح المحلي وكتابة ملف الإعدادات الصحيح
+      - name: Setup Keystore & Config
         run: |
-          # إنشاء المفتاح في المجلد الحالي
-          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
+          echo ">>> SETUP KEYSTORE & CONFIG <<<" >> debug_log.txt
           
-          # كتابة ملف إعدادات التصدير مباشرة بالمسار النسبي (res://)
-          # هذا يمنع أي خطأ في المسارات
+          # إنشاء المفتاح في المجلد الحالي (وليس في الروت)
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
+          chmod 777 debug.keystore
+          echo "Keystore created at: $(pwd)/debug.keystore" >> debug_log.txt
+
+          # كتابة ملف الإعدادات من الصفر (لتجنب أخطاء sed)
           cat <<EOT > export_presets.cfg
           [preset.0]
           name="Android"
@@ -44,13 +49,13 @@ jobs:
 
           [preset.0.options]
           package/unique_name="com.termux.ultra"
-          package/name="Termux Ultra Final"
+          package/name="Termux Ultra"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
           package/exclude_from_recents=false
           gradle/build_type=1
-          keystore/debug="res://debug.keystore"
+          keystore/debug="$(pwd)/debug.keystore"
           keystore/debug_user="androiddebugkey"
           keystore/debug_password="android"
           keystore/release=""
@@ -59,20 +64,36 @@ jobs:
           version/code=1
           version/name="1.0.0"
           EOT
+          
+          echo "Export config written." >> debug_log.txt
+          echo ">>> CONFIG CONTENT <<<" >> debug_log.txt
+          cat export_presets.cfg >> debug_log.txt
+          echo "--------------------------------" >> debug_log.txt
 
-      # 3. التأكد من مكان SDK (احتياطي)
-      - name: Ensure SDK Path
+      # 3. محاولة البناء (مع تسجيل النتيجة)
+      - name: Build Attempt
         run: |
-          mkdir -p ~/.config/godot/
-          echo '[editor_settings-4.tres]' > ~/.config/godot/editor_settings-4.tres
-          echo 'export/android/android_sdk_path = "/usr/lib/android-sdk"' >> ~/.config/godot/editor_settings-4.tres
+          echo ">>> STARTING BUILD <<<" >> debug_log.txt
+          # نحاول البناء
+          godot --headless --verbose --export-debug "Android" game.apk >> debug_log.txt 2>&1 || echo "Build COMMAND FAILED" >> debug_log.txt
+          echo ">>> END BUILD <<<" >> debug_log.txt
 
-      # 4. البناء (مع تفعيل verbose لرؤية التفاصيل)
-      - name: Build APK
-        run: godot --headless --verbose --export-debug "Android" game.apk
+      # 4. فحص النتيجة
+      - name: Check Result
+        run: |
+          if [ -f game.apk ]; then
+            echo "SUCCESS: game.apk created!" >> debug_log.txt
+            ls -lh game.apk >> debug_log.txt
+          else
+            echo "FAILURE: game.apk NOT found." >> debug_log.txt
+          fi
 
-      - name: Upload Artifact
+      # 5. الرفع المضمون (يرفع اللعبة والتقرير معاً)
+      - name: Upload Everything
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: FINAL-GAME-APK
-          path: game.apk
+          name: result-files
+          path: |
+            debug_log.txt
+            game.apk
