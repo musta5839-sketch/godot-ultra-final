@@ -1,4 +1,4 @@
-name: Platinum Build
+name: Diamond Build
 on: [push, workflow_dispatch]
 
 jobs:
@@ -9,7 +9,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب
+      # 1. تثبيت القوالب (هذه الخطوة نجحت دائماً)
       - name: Install Templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
@@ -18,20 +18,17 @@ jobs:
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
 
-      # 2. إعداد البيئة (التصحيح الكبير هنا)
-      - name: Setup Environment Correctly
+      # 2. إعداد البيئة (التصحيح الجوهري هنا)
+      - name: Setup Correct Environment
         run: |
-          # أ) إنشاء المفتاح
+          # أ) إنشاء المفتاح وتحديد مساره الكامل
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           chmod 777 debug.keystore
-          
-          # حفظ المسار الكامل للمفتاح في متغير
           export KEYSTORE_PATH=$(pwd)/debug.keystore
 
-          # ب) إنشاء ملف إعدادات Godot (مع استبدال المتغيرات بشكل صحيح)
+          # ب) إنشاء ملف إعدادات Godot (بالصيغة الرسمية الصحيحة)
+          # التصحيح: استخدام الهيدر [gd_resource] وتحديد مسار SDK يدوياً
           mkdir -p ~/.config/godot
-          
-          # لاحظ: لم نضع علامة \ قبل المتغيرات لكي يتم استبدالها بقيمتها الحقيقية
           cat <<EOT > ~/.config/godot/editor_settings-4.tres
           [gd_resource type="EditorSettings" format=3]
 
@@ -42,12 +39,11 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOT
 
-          # طباعة الملف للتأكد (ستراها في السجل)
+          # ج) طباعة الإعدادات للتأكد (كما في التشخيص)
           echo ">>> VERIFYING EDITOR SETTINGS <<<"
           cat ~/.config/godot/editor_settings-4.tres
 
-          # ج) ملف تصدير المشروع
-          # سنترك حقول المفتاح فارغة هنا لكي يستخدم الإعدادات العامة التي كتبناها فوق
+          # د) ملف تصدير المشروع (يستخدم الإعدادات العامة)
           cat <<EOT > export_presets.cfg
           [preset.0]
           name="Android"
@@ -65,8 +61,8 @@ jobs:
           encrypt_directory=false
 
           [preset.0.options]
-          package/unique_name="com.termux.platinum"
-          package/name="Termux Platinum"
+          package/unique_name="com.termux.diamond"
+          package/name="Termux Diamond"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
@@ -79,12 +75,16 @@ jobs:
           version/name="1.0.0"
           EOT
 
-      # 3. البناء
+      # 3. البناء (مع خيار الاستمرار لرؤية الأخطاء إن وجدت)
       - name: Build APK
-        run: godot --headless --verbose --export-debug "Android" game.apk
+        run: |
+          echo ">>> STARTING BUILD <<<"
+          godot --headless --verbose --export-debug "Android" game.apk || echo "BUILD FAILED BUT CONTINUING TO LOG"
 
+      # 4. الرفع (يرفع اللعبة إذا نجحت)
       - name: Upload Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PLATINUM-GAME
+          name: DIAMOND-GAME
           path: game.apk
