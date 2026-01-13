@@ -1,4 +1,4 @@
-name: Golden Build
+name: Platinum Build
 on: [push, workflow_dispatch]
 
 jobs:
@@ -18,32 +18,36 @@ jobs:
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
 
-      # 2. إعداد البيئة (المفتاح + ملف الإعدادات الصحيح)
-      - name: Setup Correct Environment
+      # 2. إعداد البيئة (التصحيح الكبير هنا)
+      - name: Setup Environment Correctly
         run: |
           # أ) إنشاء المفتاح
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           chmod 777 debug.keystore
+          
+          # حفظ المسار الكامل للمفتاح في متغير
+          export KEYSTORE_PATH=$(pwd)/debug.keystore
 
-          # ب) إنشاء ملف إعدادات Godot (بالهيدر الصحيح هذه المرة!)
+          # ب) إنشاء ملف إعدادات Godot (مع استبدال المتغيرات بشكل صحيح)
           mkdir -p ~/.config/godot
           
-          # لاحظ السطر الأول المهم جداً [gd_resource...]
+          # لاحظ: لم نضع علامة \ قبل المتغيرات لكي يتم استبدالها بقيمتها الحقيقية
           cat <<EOT > ~/.config/godot/editor_settings-4.tres
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
-          export/android/android_sdk_path = "$ANDROID_HOME"
-          export/android/debug_keystore = "$PWD/debug.keystore"
+          export/android/android_sdk_path = "/usr/lib/android-sdk"
+          export/android/debug_keystore = "$KEYSTORE_PATH"
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOT
 
-          # طباعة الملف للتأكد من محتواه في السجل
-          echo ">>> EDITOR SETTINGS CONTENT <<<"
+          # طباعة الملف للتأكد (ستراها في السجل)
+          echo ">>> VERIFYING EDITOR SETTINGS <<<"
           cat ~/.config/godot/editor_settings-4.tres
 
           # ج) ملف تصدير المشروع
+          # سنترك حقول المفتاح فارغة هنا لكي يستخدم الإعدادات العامة التي كتبناها فوق
           cat <<EOT > export_presets.cfg
           [preset.0]
           name="Android"
@@ -61,16 +65,16 @@ jobs:
           encrypt_directory=false
 
           [preset.0.options]
-          package/unique_name="com.termux.golden"
-          package/name="Termux Golden"
+          package/unique_name="com.termux.platinum"
+          package/name="Termux Platinum"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
           package/exclude_from_recents=false
           gradle/build_type=1
-          keystore/debug="res://debug.keystore"
-          keystore/debug_user="androiddebugkey"
-          keystore/debug_password="android"
+          keystore/debug=""
+          keystore/debug_user=""
+          keystore/debug_password=""
           version/code=1
           version/name="1.0.0"
           EOT
@@ -82,5 +86,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GOLDEN-GAME
+          name: PLATINUM-GAME
           path: game.apk
