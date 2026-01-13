@@ -1,37 +1,48 @@
-name: Ultimate Fix
+name: Master Key Build
 on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container: barichello/godot-ci:4.2.1
+    env:
+      # إجبار جودوت على حفظ/قراءة الإعدادات من المجلد الحالي
+      XDG_CONFIG_HOME: /github/workspace/.config
+      XDG_DATA_HOME: /github/workspace/.local/share
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب
+      # 1. تثبيت القوالب (في المكان الجديد المجبر عليه)
       - name: Install Templates
         run: |
-          mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
+          # نستخدم المتغيرات التي حددناها بالأعلى
+          mkdir -p $XDG_DATA_HOME/godot/export_templates/4.2.1.stable
           wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz
           unzip -q Godot_v4.2.1-stable_export_templates.tpz
-          mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
+          mv templates/* $XDG_DATA_HOME/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
 
-      # 2. إعداد المفتاح + تحديد مكان SDK (الحل الجذري)
-      - name: Setup Config & SDK
+      # 2. إعداد المفتاح + فرض مسار SDK في ملف الإعدادات
+      - name: Setup Environment
         run: |
-          # إنشاء المفتاح
+          # 1. إنشاء المفتاح
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           chmod 777 debug.keystore
 
-          # --- الخطوة المفقودة: تحديد مسار SDK تلقائياً ---
-          # نستخدم المتغير ANDROID_SDK_ROOT الموجود أصلاً في السيرفر
-          mkdir -p ~/.config/godot/
-          echo '[editor_settings-4.tres]' > ~/.config/godot/editor_settings-4.tres
-          echo "export/android/android_sdk_path = \"$ANDROID_SDK_ROOT\"" >> ~/.config/godot/editor_settings-4.tres
-          
-          # كتابة ملف إعدادات التصدير (باستخدام res:// للمفتاح)
+          # 2. إنشاء ملف إعدادات جودوت (editor_settings-4.tres)
+          # سنكتب مسار SDK الثابت في هذه الحاوية: /usr/lib/android-sdk
+          mkdir -p $XDG_CONFIG_HOME/godot
+          cat <<EOT > $XDG_CONFIG_HOME/godot/editor_settings-4.tres
+          [gd_resource type="EditorSettings" format=3]
+          [resource]
+          export/android/android_sdk_path = "/usr/lib/android-sdk"
+          export/android/debug_keystore = "$PWD/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOT
+
+          # 3. إنشاء ملف تصدير المشروع
           cat <<EOT > export_presets.cfg
           [preset.0]
           name="Android"
@@ -49,8 +60,8 @@ jobs:
           encrypt_directory=false
 
           [preset.0.options]
-          package/unique_name="com.termux.ultra"
-          package/name="Termux Ultra"
+          package/unique_name="com.termux.master"
+          package/name="Termux Master"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
@@ -59,19 +70,25 @@ jobs:
           keystore/debug="res://debug.keystore"
           keystore/debug_user="androiddebugkey"
           keystore/debug_password="android"
-          keystore/release=""
-          keystore/release_user=""
-          keystore/release_password=""
           version/code=1
           version/name="1.0.0"
           EOT
 
-      # 3. البناء والرفع
-      - name: Build APK
-        run: godot --headless --verbose --export-debug "Android" game.apk
+      # 3. البناء والتشخيص الفوري
+      - name: Build and Check
+        run: |
+          echo "Checking SDK Path..."
+          ls -d /usr/lib/android-sdk || echo "SDK NOT FOUND at default path!"
+          
+          echo "Starting Build..."
+          # تشغيل البناء
+          godot --headless --verbose --export-debug "Android" game.apk
+          
+          echo "Checking for APK..."
+          ls -lh game.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FINAL-GAME
+          name: MASTER-GAME
           path: game.apk
