@@ -1,4 +1,4 @@
-name: Fixed Build
+name: Final Relative Build
 on: [push, workflow_dispatch]
 
 jobs:
@@ -9,7 +9,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب (كما نجح سابقاً)
+      # 1. تثبيت القوالب (ضروري)
       - name: Install Templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
@@ -18,34 +18,61 @@ jobs:
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
 
-      # 2. إعداد المفتاح (التصحيح هنا: نضعه في المجلد الحالي وليس في الروت)
-      - name: Setup Keystore (Fixed)
+      # 2. إعداد المفتاح + ملف التصدير (الحل الذكي)
+      - name: Setup Config & Keystore
         run: |
           # إنشاء المفتاح في المجلد الحالي
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           
-          # إعطاء صلاحيات كاملة للمفتاح (لضمان قراءته)
-          chmod 777 debug.keystore
+          # كتابة ملف إعدادات التصدير مباشرة بالمسار النسبي (res://)
+          # هذا يمنع أي خطأ في المسارات
+          cat <<EOT > export_presets.cfg
+          [preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="game.apk"
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
 
-          # توجيه جودوت للمسار الحالي (نستخدم المتغير PWD)
-          sed -i "s|keystore/debug=.*|keystore/debug=\"$PWD/debug.keystore\"|g" export_presets.cfg
-          sed -i 's|keystore/debug_user=.*|keystore/debug_user="androiddebugkey"|g' export_presets.cfg
-          sed -i 's|keystore/debug_password=.*|keystore/debug_password="android"|g' export_presets.cfg
+          [preset.0.options]
+          package/unique_name="com.termux.ultra"
+          package/name="Termux Ultra Final"
+          package/signed=true
+          package/app_category=0
+          package/retain_data_on_uninstall=false
+          package/exclude_from_recents=false
+          gradle/build_type=1
+          keystore/debug="res://debug.keystore"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          keystore/release=""
+          keystore/release_user=""
+          keystore/release_password=""
+          version/code=1
+          version/name="1.0.0"
+          EOT
 
-      # 3. خطوة إضافية: تحديد مسار Android SDK يدوياً للأمان
-      - name: Set SDK Path
+      # 3. التأكد من مكان SDK (احتياطي)
+      - name: Ensure SDK Path
         run: |
-          # إضافة إعدادات المحرر ليعرف مكان SDK الموجود في الحاوية
           mkdir -p ~/.config/godot/
           echo '[editor_settings-4.tres]' > ~/.config/godot/editor_settings-4.tres
           echo 'export/android/android_sdk_path = "/usr/lib/android-sdk"' >> ~/.config/godot/editor_settings-4.tres
 
-      # 4. البناء
+      # 4. البناء (مع تفعيل verbose لرؤية التفاصيل)
       - name: Build APK
         run: godot --headless --verbose --export-debug "Android" game.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WORKING-GAME-APK
+          name: FINAL-GAME-APK
           path: game.apk
