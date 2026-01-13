@@ -1,36 +1,37 @@
-name: Diagnosis & Fix
+name: Ultimate Fix
 on: [push, workflow_dispatch]
 
 jobs:
-  diagnose_and_fix:
+  build:
     runs-on: ubuntu-latest
     container: barichello/godot-ci:4.2.1
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب (كما في الكود الناجح)
+      # 1. تثبيت القوالب
       - name: Install Templates
         run: |
-          echo ">>> STARTING TEMPLATE INSTALL <<<" > debug_log.txt
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
           wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz
           unzip -q Godot_v4.2.1-stable_export_templates.tpz
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
-          echo "Templates Installed." >> debug_log.txt
 
-      # 2. إعداد المفتاح المحلي وكتابة ملف الإعدادات الصحيح
-      - name: Setup Keystore & Config
+      # 2. إعداد المفتاح + تحديد مكان SDK (الحل الجذري)
+      - name: Setup Config & SDK
         run: |
-          echo ">>> SETUP KEYSTORE & CONFIG <<<" >> debug_log.txt
-          
-          # إنشاء المفتاح في المجلد الحالي (وليس في الروت)
+          # إنشاء المفتاح
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           chmod 777 debug.keystore
-          echo "Keystore created at: $(pwd)/debug.keystore" >> debug_log.txt
 
-          # كتابة ملف الإعدادات من الصفر (لتجنب أخطاء sed)
+          # --- الخطوة المفقودة: تحديد مسار SDK تلقائياً ---
+          # نستخدم المتغير ANDROID_SDK_ROOT الموجود أصلاً في السيرفر
+          mkdir -p ~/.config/godot/
+          echo '[editor_settings-4.tres]' > ~/.config/godot/editor_settings-4.tres
+          echo "export/android/android_sdk_path = \"$ANDROID_SDK_ROOT\"" >> ~/.config/godot/editor_settings-4.tres
+          
+          # كتابة ملف إعدادات التصدير (باستخدام res:// للمفتاح)
           cat <<EOT > export_presets.cfg
           [preset.0]
           name="Android"
@@ -55,7 +56,7 @@ jobs:
           package/retain_data_on_uninstall=false
           package/exclude_from_recents=false
           gradle/build_type=1
-          keystore/debug="$(pwd)/debug.keystore"
+          keystore/debug="res://debug.keystore"
           keystore/debug_user="androiddebugkey"
           keystore/debug_password="android"
           keystore/release=""
@@ -64,36 +65,13 @@ jobs:
           version/code=1
           version/name="1.0.0"
           EOT
-          
-          echo "Export config written." >> debug_log.txt
-          echo ">>> CONFIG CONTENT <<<" >> debug_log.txt
-          cat export_presets.cfg >> debug_log.txt
-          echo "--------------------------------" >> debug_log.txt
 
-      # 3. محاولة البناء (مع تسجيل النتيجة)
-      - name: Build Attempt
-        run: |
-          echo ">>> STARTING BUILD <<<" >> debug_log.txt
-          # نحاول البناء
-          godot --headless --verbose --export-debug "Android" game.apk >> debug_log.txt 2>&1 || echo "Build COMMAND FAILED" >> debug_log.txt
-          echo ">>> END BUILD <<<" >> debug_log.txt
+      # 3. البناء والرفع
+      - name: Build APK
+        run: godot --headless --verbose --export-debug "Android" game.apk
 
-      # 4. فحص النتيجة
-      - name: Check Result
-        run: |
-          if [ -f game.apk ]; then
-            echo "SUCCESS: game.apk created!" >> debug_log.txt
-            ls -lh game.apk >> debug_log.txt
-          else
-            echo "FAILURE: game.apk NOT found." >> debug_log.txt
-          fi
-
-      # 5. الرفع المضمون (يرفع اللعبة والتقرير معاً)
-      - name: Upload Everything
-        if: always()
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: result-files
-          path: |
-            debug_log.txt
-            game.apk
+          name: FINAL-GAME
+          path: game.apk
