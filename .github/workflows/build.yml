@@ -1,33 +1,31 @@
-name: Native Direct Build
+name: Native Fixed Build
 on: [push, workflow_dispatch]
 
 jobs:
   export:
-    runs-on: ubuntu-latest  # لاحظ: ألغينا استخدام الحاوية (container)
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تجهيز الجافا (مطلوب لتوقيع التطبيق)
+      # 1. تجهيز الجافا
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 2. تجهيز أدوات الأندرويد الرسمية
+      # 2. تجهيز أدوات الأندرويد
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 3. تحميل وتثبيت Godot يدوياً على السيرفر
+      # 3. تثبيت Godot
       - name: Install Godot Engine
         run: |
-          echo "Downloading Godot..."
           wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_linux.x86_64.zip
           unzip Godot_v4.2.1-stable_linux.x86_64.zip
           sudo mv Godot_v4.2.1-stable_linux.x86_64 /usr/local/bin/godot
           sudo chmod +x /usr/local/bin/godot
-          echo "Godot Installed Successfully!"
 
       # 4. تثبيت القوالب
       - name: Install Templates
@@ -37,16 +35,14 @@ jobs:
           unzip -q Godot_v4.2.1-stable_export_templates.tpz
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
 
-      # 5. إعداد البيئة (المفتاح + ملف الإعدادات)
+      # 5. إعداد البيئة (تم إصلاح أمر المفتاح هنا)
       - name: Configure Settings
         run: |
-          # أ) إنشاء المفتاح
-          keytool -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
+          # إصلاح: إضافة -keyalg RSA
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           
-          # ب) إنشاء ملف إعدادات Godot (باستخدام مسار SDK الرسمي للسيرفر)
-          # المتغير ANDROID_HOME متاح تلقائياً في هذا النظام
+          # إعداد ملف Godot
           mkdir -p ~/.config/godot
-          
           cat <<EOT > ~/.config/godot/editor_settings-4.tres
           [gd_resource type="EditorSettings" format=3]
 
@@ -56,11 +52,8 @@ jobs:
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOT
-          
-          echo ">>> Settings File Created:"
-          cat ~/.config/godot/editor_settings-4.tres
 
-      # 6. إعداد ملف التصدير (نظيف وجديد)
+      # 6. ملف التصدير
       - name: Create Export Preset
         run: |
           cat <<EOT > export_presets.cfg
@@ -80,8 +73,8 @@ jobs:
           encrypt_directory=false
 
           [preset.0.options]
-          package/unique_name="com.termux.native"
-          package/name="Termux Native"
+          package/unique_name="com.termux.nativefixed"
+          package/name="Termux Native Fixed"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
@@ -94,7 +87,7 @@ jobs:
           version/name="1.0.0"
           EOT
 
-      # 7. البناء (لحظة الحقيقة)
+      # 7. البناء
       - name: Build APK
         run: godot --headless --verbose --export-debug "Android" game.apk
 
@@ -102,5 +95,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NATIVE-GAME
+          name: NATIVE-FIXED-GAME
           path: game.apk
