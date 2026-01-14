@@ -1,53 +1,67 @@
-name: Injection Build
+name: Native Direct Build
 on: [push, workflow_dispatch]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    container: barichello/godot-ci:4.2.1
+  export:
+    runs-on: ubuntu-latest  # لاحظ: ألغينا استخدام الحاوية (container)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب (الخطوة الثابتة)
+      # 1. تجهيز الجافا (مطلوب لتوقيع التطبيق)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 2. تجهيز أدوات الأندرويد الرسمية
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 3. تحميل وتثبيت Godot يدوياً على السيرفر
+      - name: Install Godot Engine
+        run: |
+          echo "Downloading Godot..."
+          wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_linux.x86_64.zip
+          unzip Godot_v4.2.1-stable_linux.x86_64.zip
+          sudo mv Godot_v4.2.1-stable_linux.x86_64 /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          echo "Godot Installed Successfully!"
+
+      # 4. تثبيت القوالب
       - name: Install Templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
           wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_export_templates.tpz
           unzip -q Godot_v4.2.1-stable_export_templates.tpz
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
-          rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
 
-      # 2. إعداد المفتاح
-      - name: Setup Keystore
+      # 5. إعداد البيئة (المفتاح + ملف الإعدادات)
+      - name: Configure Settings
         run: |
-          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
-          chmod 777 debug.keystore
+          # أ) إنشاء المفتاح
+          keytool -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
+          
+          # ب) إنشاء ملف إعدادات Godot (باستخدام مسار SDK الرسمي للسيرفر)
+          # المتغير ANDROID_HOME متاح تلقائياً في هذا النظام
+          mkdir -p ~/.config/godot
+          
+          cat <<EOT > ~/.config/godot/editor_settings-4.tres
+          [gd_resource type="EditorSettings" format=3]
 
-      # 3. الخدعة الكبرى: جعل Godot ينشئ الملف ثم نعدله
-      - name: Auto-Generate and Inject Settings
-        run: |
-          echo ">>> Initializing Godot to generate settings..."
-          # 1. تشغيل المحرك وإغلاقه فوراً لإنشاء الملفات الافتراضية
-          godot --headless --editor --quit
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/debug_keystore = "$PWD/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOT
           
-          echo ">>> Searching for the generated file..."
-          # 2. البحث عن الملف أينما كان
-          SETTINGS_FILE=$(find / -name editor_settings-4.tres 2>/dev/null | head -n 1)
-          echo "Found settings at: $SETTINGS_FILE"
-          
-          # 3. حقن مسار SDK ومسار المفتاح داخل الملف الموجود
-          # نستخدم أمر sed لإضافة الأسطر بعد كلمة [resource]
-          sed -i '/\[resource\]/a export/android/android_sdk_path = "/usr/lib/android-sdk"' "$SETTINGS_FILE"
-          sed -i '/\[resource\]/a export/android/debug_keystore = "'$(pwd)/debug.keystore'"' "$SETTINGS_FILE"
-          sed -i '/\[resource\]/a export/android/debug_keystore_user = "androiddebugkey"' "$SETTINGS_FILE"
-          sed -i '/\[resource\]/a export/android/debug_keystore_pass = "android"' "$SETTINGS_FILE"
-          
-          echo ">>> Content after injection:"
-          cat "$SETTINGS_FILE"
+          echo ">>> Settings File Created:"
+          cat ~/.config/godot/editor_settings-4.tres
 
-      # 4. إعداد ملف التصدير (يعتمد على الإعدادات المحقونة)
-      - name: Setup Export Preset
+      # 6. إعداد ملف التصدير (نظيف وجديد)
+      - name: Create Export Preset
         run: |
           cat <<EOT > export_presets.cfg
           [preset.0]
@@ -66,8 +80,8 @@ jobs:
           encrypt_directory=false
 
           [preset.0.options]
-          package/unique_name="com.termux.injection"
-          package/name="Termux Injection"
+          package/unique_name="com.termux.native"
+          package/name="Termux Native"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
@@ -80,13 +94,13 @@ jobs:
           version/name="1.0.0"
           EOT
 
-      # 5. البناء والرفع
+      # 7. البناء (لحظة الحقيقة)
       - name: Build APK
         run: godot --headless --verbose --export-debug "Android" game.apk
 
+      # 8. الرفع
       - name: Upload Artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: INJECTION-GAME
+          name: NATIVE-GAME
           path: game.apk
