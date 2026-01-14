@@ -1,4 +1,4 @@
-name: Siege Build
+name: Injection Build
 on: [push, workflow_dispatch]
 
 jobs:
@@ -9,7 +9,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. تثبيت القوالب
+      # 1. تثبيت القوالب (الخطوة الثابتة)
       - name: Install Templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates/4.2.1.stable
@@ -18,41 +18,37 @@ jobs:
           mv templates/* ~/.local/share/godot/export_templates/4.2.1.stable/
           rm -rf templates Godot_v4.2.1-stable_export_templates.tpz
 
-      # 2. إعداد البيئة (المفتاح + ملف الإعدادات في كل مكان)
-      - name: Setup Environment Everywhere
+      # 2. إعداد المفتاح
+      - name: Setup Keystore
         run: |
-          # أ) إنشاء المفتاح
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999
           chmod 777 debug.keystore
-          export KEYSTORE_PATH=$(pwd)/debug.keystore
 
-          # ب) تجهيز محتوى ملف الإعدادات (مع مسار SDK الصريح)
-          cat <<EOT > settings_content.tres
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/android_sdk_path = "/usr/lib/android-sdk"
-          export/android/debug_keystore = "$KEYSTORE_PATH"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          EOT
-
-          # ج) استراتيجية الحصار: نسخ الملف لكل المسارات المحتملة
-          # المسار 1: المستخدم الحالي
-          mkdir -p ~/.config/godot
-          cp settings_content.tres ~/.config/godot/editor_settings-4.tres
+      # 3. الخدعة الكبرى: جعل Godot ينشئ الملف ثم نعدله
+      - name: Auto-Generate and Inject Settings
+        run: |
+          echo ">>> Initializing Godot to generate settings..."
+          # 1. تشغيل المحرك وإغلاقه فوراً لإنشاء الملفات الافتراضية
+          godot --headless --editor --quit
           
-          # المسار 2: الروت (لأن الحاوية قد تعمل بصلاحيات روت)
-          mkdir -p /root/.config/godot
-          cp settings_content.tres /root/.config/godot/editor_settings-4.tres
+          echo ">>> Searching for the generated file..."
+          # 2. البحث عن الملف أينما كان
+          SETTINGS_FILE=$(find / -name editor_settings-4.tres 2>/dev/null | head -n 1)
+          echo "Found settings at: $SETTINGS_FILE"
           
-          # المسار 3: المسار القياسي XDG (احتياطي)
-          mkdir -p /github/home/.config/godot
-          cp settings_content.tres /github/home/.config/godot/editor_settings-4.tres
+          # 3. حقن مسار SDK ومسار المفتاح داخل الملف الموجود
+          # نستخدم أمر sed لإضافة الأسطر بعد كلمة [resource]
+          sed -i '/\[resource\]/a export/android/android_sdk_path = "/usr/lib/android-sdk"' "$SETTINGS_FILE"
+          sed -i '/\[resource\]/a export/android/debug_keystore = "'$(pwd)/debug.keystore'"' "$SETTINGS_FILE"
+          sed -i '/\[resource\]/a export/android/debug_keystore_user = "androiddebugkey"' "$SETTINGS_FILE"
+          sed -i '/\[resource\]/a export/android/debug_keystore_pass = "android"' "$SETTINGS_FILE"
+          
+          echo ">>> Content after injection:"
+          cat "$SETTINGS_FILE"
 
-          echo ">>> Settings placed in 3 locations to force detection <<<"
-
-          # د) ملف تصدير المشروع
+      # 4. إعداد ملف التصدير (يعتمد على الإعدادات المحقونة)
+      - name: Setup Export Preset
+        run: |
           cat <<EOT > export_presets.cfg
           [preset.0]
           name="Android"
@@ -70,8 +66,8 @@ jobs:
           encrypt_directory=false
 
           [preset.0.options]
-          package/unique_name="com.termux.siege"
-          package/name="Termux Siege"
+          package/unique_name="com.termux.injection"
+          package/name="Termux Injection"
           package/signed=true
           package/app_category=0
           package/retain_data_on_uninstall=false
@@ -84,16 +80,13 @@ jobs:
           version/name="1.0.0"
           EOT
 
-      # 3. البناء والرفع (مع الاستمرار في حالة الفشل لرفع التقرير)
+      # 5. البناء والرفع
       - name: Build APK
-        run: |
-          godot --headless --verbose --export-debug "Android" game.apk || echo "BUILD FAILED"
+        run: godot --headless --verbose --export-debug "Android" game.apk
 
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SIEGE-GAME-RESULT
-          path: |
-             game.apk
-             ~/.config/godot/editor_settings-4.tres
+          name: INJECTION-GAME
+          path: game.apk
